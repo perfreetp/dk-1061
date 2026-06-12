@@ -65,9 +65,6 @@ export function PersonalityLibrary() {
 
   const filteredPersonalities = useMemo(() => {
     return personalities.filter((p) => {
-      if (riskPersonalityIds.includes(p.id)) {
-        return true;
-      }
       if (searchQuery && !p.name.toLowerCase().includes(searchQuery.toLowerCase())) {
         return false;
       }
@@ -85,7 +82,7 @@ export function PersonalityLibrary() {
       }
       return true;
     });
-  }, [personalities, filters, searchQuery, riskPersonalityIds]);
+  }, [personalities, filters, searchQuery]);
 
   const toggleFilter = (type: keyof typeof filters, value: string | number) => {
     if (type === 'complianceLevel') {

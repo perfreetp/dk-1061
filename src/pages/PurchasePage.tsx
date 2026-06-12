@@ -15,9 +15,13 @@ import {
   Package,
   ChevronDown,
   ChevronUp,
-  User
+  User,
+  AlertTriangle,
+  Eye,
+  Ban,
+  List
 } from 'lucide-react';
-import { useAppStore, getAssignmentsByApplication } from '../store';
+import { useAppStore, getAssignmentsByApplication, getAssignmentsByEmployee, getAllEmployeesWithAssignments } from '../store';
 import { mockPersonalities, mockApplications, mockEmployees } from '../data/mockData';
 import type { PurchaseApplication, Employee } from '../types';
 
@@ -41,12 +45,13 @@ export function PurchasePage() {
     setEmployees,
     addAssignment,
     quota,
+    riskPersonalityIds,
   } = useAppStore();
 
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [purpose, setPurpose] = useState('');
   const [showForm, setShowForm] = useState(false);
-  const [activeTab, setActiveTab] = useState<'candidate' | 'history'>('candidate');
+  const [activeTab, setActiveTab] = useState<'candidate' | 'history' | 'employees'>('candidate');
   const [submitting, setSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [expandedApp, setExpandedApp] = useState<string | null>(null);
@@ -54,6 +59,11 @@ export function PurchasePage() {
   const [selectedApplication, setSelectedApplication] = useState<PurchaseApplication | null>(null);
   const [selectedEmployee, setSelectedEmployee] = useState<string>('');
   const [assignQuantity, setAssignQuantity] = useState(1);
+  const [showEmployeeDetail, setShowEmployeeDetail] = useState<string | null>(null);
+  const [employeeDetailData, setEmployeeDetailData] = useState<{
+    employee: Employee | undefined;
+    assignments: any[];
+  } | null>(null);
 
   useEffect(() => {
     if (personalities.length === 0) {
@@ -82,15 +92,18 @@ export function PurchasePage() {
     }));
   };
 
+  const validCandidateList = candidateList.filter(item => !riskPersonalityIds.includes(item.personality_id));
+  const invalidCandidateList = candidateList.filter(item => riskPersonalityIds.includes(item.personality_id));
+
   const handleSubmit = async () => {
     if (!purpose.trim()) return;
-    if (candidateList.length === 0) return;
+    if (validCandidateList.length === 0) return;
 
     setSubmitting(true);
     
     await new Promise(resolve => setTimeout(resolve, 1000));
 
-    candidateList.forEach(item => {
+    validCandidateList.forEach(item => {
       const application: PurchaseApplication = {
         id: `app-${Date.now()}-${item.personality_id}`,
         user_id: '1',
@@ -116,6 +129,13 @@ export function PurchasePage() {
   const handleAssign = () => {
     if (!selectedApplication || !selectedEmployee || assignQuantity <= 0) return;
     
+    const assignedCount = getAssignedCount(selectedApplication.id);
+    const maxAvailable = selectedApplication.quantity - assignedCount;
+    
+    if (assignQuantity > maxAvailable) {
+      return;
+    }
+    
     addAssignment({
       application_id: selectedApplication.id,
       employee_id: selectedEmployee,
@@ -136,14 +156,23 @@ export function PurchasePage() {
     setShowAssignModal(true);
   };
 
+  const openEmployeeDetail = (employeeId: string) => {
+    const employee = employees.find(e => e.id === employeeId);
+    const assignments = getAssignmentsByEmployee(employeeId);
+    setEmployeeDetailData({ employee, assignments });
+    setShowEmployeeDetail(employeeId);
+  };
+
   const getTotalQuantity = () => {
-    return candidateList.reduce((sum, item) => sum + (quantities[item.personality_id] || 1), 0);
+    return validCandidateList.reduce((sum, item) => sum + (quantities[item.personality_id] || 1), 0);
   };
 
   const getAssignedCount = (appId: string) => {
     const assignments = getAssignmentsByApplication(appId);
     return assignments.reduce((sum, a) => sum + a.quantity, 0);
   };
+
+  const employeesWithAssignments = getAllEmployeesWithAssignments();
 
   return (
     <div className="min-h-screen bg-gray-50 pt-20">
@@ -194,6 +223,21 @@ export function PurchasePage() {
                     </span>
                   )}
                 </button>
+                <button
+                  onClick={() => setActiveTab('employees')}
+                  className={`flex-1 px-6 py-4 text-sm font-medium transition-colors ${
+                    activeTab === 'employees'
+                      ? 'text-primary-600 border-b-2 border-primary-600 bg-primary-50/50'
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  员工分配汇总
+                  {employeesWithAssignments.length > 0 && (
+                    <span className="ml-2 px-2 py-0.5 bg-green-100 text-green-600 text-xs rounded-full">
+                      {employeesWithAssignments.length}
+                    </span>
+                  )}
+                </button>
               </div>
 
               <div className="p-6">
@@ -215,7 +259,47 @@ export function PurchasePage() {
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      {candidateList.map((item) => {
+                      {invalidCandidateList.length > 0 && (
+                        <div className="p-4 bg-red-50 border border-red-200 rounded-xl">
+                          <div className="flex items-center gap-2 mb-3">
+                            <Ban className="w-5 h-5 text-red-600" />
+                            <span className="font-medium text-red-700">已停用的人格（将被自动排除）</span>
+                          </div>
+                          <div className="space-y-2">
+                            {invalidCandidateList.map((item) => (
+                              <div
+                                key={item.id}
+                                className="flex items-center gap-4 p-3 bg-white rounded-lg opacity-60"
+                              >
+                                <img
+                                  src={item.personality?.avatar}
+                                  alt={item.personality?.name}
+                                  className="w-12 h-12 rounded-lg grayscale"
+                                />
+                                <div className="flex-1">
+                                  <h4 className="font-semibold text-gray-900 line-through">{item.personality?.name}</h4>
+                                  <div className="flex items-center gap-3 text-sm text-gray-500">
+                                    <span>{item.personality?.industry}</span>
+                                    <span className="text-gray-300">|</span>
+                                    <span>{item.personality?.task_type}</span>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span className="px-2 py-1 bg-red-100 text-red-600 text-xs rounded-full">已停用</span>
+                                  <button
+                                    onClick={() => removeFromCandidateList(item.personality_id)}
+                                    className="w-8 h-8 rounded-lg hover:bg-red-50 flex items-center justify-center text-gray-400 hover:text-red-500 transition-colors"
+                                  >
+                                    <X className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {validCandidateList.map((item) => {
                         const qty = quantities[item.personality_id] || 1;
                         return (
                           <div
@@ -262,12 +346,22 @@ export function PurchasePage() {
 
                       <div className="p-4 bg-primary-50 rounded-xl flex items-center justify-between">
                         <div>
-                          <span className="text-sm text-gray-600">共 {candidateList.length} 种人格，总计 </span>
+                          <span className="text-sm text-gray-600">共 {validCandidateList.length} 种人格，总计 </span>
                           <span className="font-bold text-primary-700">{getTotalQuantity()} 个</span>
+                          {invalidCandidateList.length > 0 && (
+                            <span className="text-sm text-gray-500 ml-2">
+                              (含 {invalidCandidateList.length} 个已停用人格，将被排除)
+                            </span>
+                          )}
                         </div>
                         <button
                           onClick={() => setShowForm(true)}
-                          className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-primary-500 to-primary-600 text-white font-medium rounded-xl hover:from-primary-600 hover:to-primary-700 transition-all shadow-lg shadow-primary-500/25"
+                          disabled={validCandidateList.length === 0}
+                          className={`flex items-center gap-2 px-6 py-2.5 font-medium rounded-xl transition-all ${
+                            validCandidateList.length === 0
+                              ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                              : 'bg-gradient-to-r from-primary-500 to-primary-600 text-white hover:from-primary-600 hover:to-primary-700 shadow-lg shadow-primary-500/25'
+                          }`}
                         >
                           <Send className="w-4 h-4" />
                           提交申请
@@ -275,7 +369,7 @@ export function PurchasePage() {
                       </div>
                     </div>
                   )
-                ) : (
+                ) : activeTab === 'history' ? (
                   applications.length === 0 ? (
                     <div className="py-16 text-center">
                       <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -361,18 +455,26 @@ export function PurchasePage() {
 
                                 {assignments.length > 0 && (
                                   <div className="bg-white rounded-lg p-4">
-                                    <h5 className="text-sm font-medium text-gray-900 mb-3">分配记录</h5>
+                                    <h5 className="text-sm font-medium text-gray-900 mb-3 flex items-center gap-2">
+                                      <List className="w-4 h-4" />
+                                      分配记录
+                                    </h5>
                                     <div className="space-y-2">
                                       {assignments.map((assign) => (
                                         <div
                                           key={assign.id}
-                                          className="flex items-center justify-between p-2 bg-gray-50 rounded-lg"
+                                          className="flex items-center justify-between p-2 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            openEmployeeDetail(assign.employee_id);
+                                          }}
                                         >
                                           <div className="flex items-center gap-2">
                                             <User className="w-4 h-4 text-gray-500" />
                                             <span className="text-sm text-gray-700">
                                               {assign.employee?.name} ({assign.employee?.department})
                                             </span>
+                                            <Eye className="w-3 h-3 text-gray-400 ml-2" />
                                           </div>
                                           <span className="text-sm font-medium text-gray-900">
                                             ×{assign.quantity}
@@ -393,6 +495,49 @@ export function PurchasePage() {
                           </div>
                         );
                       })}
+                    </div>
+                  )
+                ) : (
+                  employeesWithAssignments.length === 0 ? (
+                    <div className="py-16 text-center">
+                      <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <Users className="w-10 h-10 text-gray-400" />
+                      </div>
+                      <h3 className="text-lg font-medium text-gray-900 mb-2">暂无员工分配记录</h3>
+                      <p className="text-gray-500">将已通过的采购申请分配给员工后，记录将显示在这里</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {employeesWithAssignments.map((item) => (
+                        <div
+                          key={item.employee?.id}
+                          className="bg-gray-50 rounded-xl overflow-hidden"
+                        >
+                          <div 
+                            className="p-4 hover:bg-gray-100 transition-colors cursor-pointer"
+                            onClick={() => openEmployeeDetail(item.employee?.id || '')}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                <div className="w-12 h-12 bg-primary-100 rounded-full flex items-center justify-center">
+                                  <User className="w-6 h-6 text-primary-600" />
+                                </div>
+                                <div>
+                                  <h4 className="font-semibold text-gray-900">{item.employee?.name}</h4>
+                                  <p className="text-sm text-gray-500">{item.employee?.department} | {item.employee?.email}</p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-4">
+                                <div className="text-right">
+                                  <div className="text-sm text-gray-500">已分配人格</div>
+                                  <div className="text-xl font-bold text-primary-600">{item.totalQuantity} 个</div>
+                                </div>
+                                <Eye className="w-5 h-5 text-gray-400" />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   )
                 )}
@@ -485,7 +630,7 @@ export function PurchasePage() {
                 <div className="mb-6 p-4 bg-gray-50 rounded-xl">
                   <h4 className="text-sm font-medium text-gray-900 mb-3">采购清单</h4>
                   <div className="space-y-2">
-                    {candidateList.map((item) => (
+                    {validCandidateList.map((item) => (
                       <div key={item.id} className="flex items-center justify-between text-sm">
                         <span className="text-gray-700">{item.personality?.name}</span>
                         <span className="font-medium text-gray-900">×{quantities[item.personality_id] || 1}</span>
@@ -507,9 +652,9 @@ export function PurchasePage() {
                   </button>
                   <button
                     onClick={handleSubmit}
-                    disabled={!purpose.trim() || submitting}
+                    disabled={!purpose.trim() || submitting || validCandidateList.length === 0}
                     className={`flex-1 py-3 font-medium rounded-xl transition-all ${
-                      !purpose.trim()
+                      !purpose.trim() || validCandidateList.length === 0
                         ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
                         : submitting
                         ? 'bg-primary-500 text-white opacity-70'
@@ -575,18 +720,29 @@ export function PurchasePage() {
                   <div className="flex items-center gap-3">
                     <button
                       onClick={() => setAssignQuantity(Math.max(1, assignQuantity - 1))}
-                      className="w-10 h-10 rounded-lg bg-gray-200 hover:bg-gray-300 flex items-center justify-center transition-colors"
+                      disabled={assignQuantity <= 1}
+                      className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${
+                        assignQuantity <= 1 ? 'bg-gray-100 cursor-not-allowed' : 'bg-gray-200 hover:bg-gray-300'
+                      }`}
                     >
                       <Minus className="w-5 h-5" />
                     </button>
                     <span className="text-xl font-bold text-gray-900 w-12 text-center">{assignQuantity}</span>
                     <button
                       onClick={() => setAssignQuantity(Math.min(selectedApplication.quantity - getAssignedCount(selectedApplication.id), assignQuantity + 1))}
-                      className="w-10 h-10 rounded-lg bg-gray-200 hover:bg-gray-300 flex items-center justify-center transition-colors"
+                      disabled={assignQuantity >= selectedApplication.quantity - getAssignedCount(selectedApplication.id)}
+                      className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${
+                        assignQuantity >= selectedApplication.quantity - getAssignedCount(selectedApplication.id) 
+                          ? 'bg-gray-100 cursor-not-allowed' 
+                          : 'bg-gray-200 hover:bg-gray-300'
+                      }`}
                     >
                       <Plus className="w-5 h-5" />
                     </button>
                   </div>
+                  <p className="text-xs text-gray-500 mt-2">
+                    最大可分配: {selectedApplication.quantity - getAssignedCount(selectedApplication.id)} 个
+                  </p>
                 </div>
 
                 <div className="flex gap-3">
@@ -598,15 +754,84 @@ export function PurchasePage() {
                   </button>
                   <button
                     onClick={handleAssign}
-                    disabled={!selectedEmployee || assignQuantity <= 0}
+                    disabled={!selectedEmployee || assignQuantity <= 0 || assignQuantity > (selectedApplication.quantity - getAssignedCount(selectedApplication.id))}
                     className={`flex-1 py-3 font-medium rounded-xl transition-all ${
-                      !selectedEmployee || assignQuantity <= 0
+                      !selectedEmployee || assignQuantity <= 0 || assignQuantity > (selectedApplication.quantity - getAssignedCount(selectedApplication.id))
                         ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
                         : 'bg-gradient-to-r from-primary-500 to-primary-600 text-white hover:from-primary-600 hover:to-primary-700'
                     }`}
                   >
                     确认分配
                   </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showEmployeeDetail && employeeDetailData && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+              <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-gray-900">员工分配详情</h3>
+                <button
+                  onClick={() => {
+                    setShowEmployeeDetail(null);
+                    setEmployeeDetailData(null);
+                  }}
+                  className="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center transition-colors"
+                >
+                  <X className="w-5 h-5 text-gray-500" />
+                </button>
+              </div>
+              
+              <div className="p-6">
+                <div className="flex items-center gap-3 mb-6 p-4 bg-primary-50 rounded-xl">
+                  <div className="w-14 h-14 bg-primary-100 rounded-full flex items-center justify-center">
+                    <User className="w-7 h-7 text-primary-600" />
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-gray-900 text-lg">{employeeDetailData.employee?.name}</h4>
+                    <p className="text-sm text-gray-500">{employeeDetailData.employee?.department} | {employeeDetailData.employee?.email}</p>
+                  </div>
+                </div>
+
+                <div className="mb-4">
+                  <h5 className="text-sm font-medium text-gray-900 mb-3">已分配人格</h5>
+                  {employeeDetailData.assignments.length > 0 ? (
+                    <div className="space-y-3">
+                      {employeeDetailData.assignments.map((assign) => (
+                        <div
+                          key={assign.id}
+                          className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg"
+                        >
+                          <img
+                            src={assign.personality?.avatar}
+                            alt={assign.personality?.name}
+                            className="w-10 h-10 rounded-lg"
+                          />
+                          <div className="flex-1">
+                            <h6 className="font-medium text-gray-900">{assign.personality?.name}</h6>
+                            <p className="text-xs text-gray-500">{assign.personality?.task_type}</p>
+                          </div>
+                          <span className="text-lg font-bold text-primary-600">×{assign.quantity}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 text-gray-500">
+                      暂无分配记录
+                    </div>
+                  )}
+                </div>
+
+                <div className="pt-4 border-t border-gray-200">
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-600">总计分配</span>
+                    <span className="text-2xl font-bold text-primary-600">
+                      {employeeDetailData.assignments.reduce((sum, a) => sum + a.quantity, 0)} 个人格
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>

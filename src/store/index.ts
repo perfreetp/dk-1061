@@ -63,6 +63,8 @@ interface AppStore {
   
   setEmployees: (employees: Employee[]) => void;
   addAssignment: (assignment: Omit<PersonalityAssignment, 'id' | 'assigned_at'>) => void;
+  
+  getValidCandidateList: () => CandidateItem[];
 }
 
 const localStorageKey = 'ai-personality-market-storage';
@@ -93,7 +95,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     complianceLevel: [],
     responseStyle: [],
   },
-  candidateList: [],
+  candidateList: savedData.candidateList || [],
   compareList: [],
   trialResults: [],
   applications: savedData.applications || [],
@@ -111,21 +113,37 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setPersonalities: (personalities) => set({ personalities }),
   setFilters: (filters) => set({ filters }),
   
-  addToCandidateList: (personality) => set((state) => ({
-    candidateList: [...state.candidateList, {
-      id: `${personality.id}-${Date.now()}`,
-      personality_id: personality.id,
-      user_id: state.user?.id || '',
-      added_at: new Date().toISOString(),
-      personality,
-    }],
-  })),
+  addToCandidateList: (personality) => {
+    const state = get();
+    if (state.riskPersonalityIds.includes(personality.id)) {
+      return;
+    }
+    if (state.candidateList.some(item => item.personality_id === personality.id)) {
+      return;
+    }
+    set((state) => ({
+      candidateList: [...state.candidateList, {
+        id: `${personality.id}-${Date.now()}`,
+        personality_id: personality.id,
+        user_id: state.user?.id || '',
+        added_at: new Date().toISOString(),
+        personality,
+      }],
+    }));
+    saveToStorage(get());
+  },
   
-  removeFromCandidateList: (personalityId) => set((state) => ({
-    candidateList: state.candidateList.filter(item => item.personality_id !== personalityId),
-  })),
+  removeFromCandidateList: (personalityId) => {
+    set((state) => ({
+      candidateList: state.candidateList.filter(item => item.personality_id !== personalityId),
+    }));
+    saveToStorage(get());
+  },
   
-  clearCandidateList: () => set({ candidateList: [] }),
+  clearCandidateList: () => {
+    set({ candidateList: [] });
+    saveToStorage(get());
+  },
   
   setCompareList: (personalities) => set({ compareList: personalities }),
   
@@ -160,7 +178,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   updateApplicationStatus: (applicationId, status) => {
     set((state) => ({
       applications: state.applications.map(app => 
-        app.id === applicationId ? { ...app, status } : app
+        app.id === applicationId ? { ...app, status, approved_at: status === 'approved' ? new Date().toISOString() : app.approved_at } : app
       ),
     }));
     saveToStorage(get());
@@ -173,6 +191,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set((state) => ({
       riskPersonalityIds: [...state.riskPersonalityIds, personalityId],
       compareList: state.compareList.filter(p => p.id !== personalityId),
+      candidateList: state.candidateList.filter(item => item.personality_id !== personalityId),
     }));
     saveToStorage(get());
   },
@@ -185,7 +204,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
   
   setRiskPersonalities: (ids) => {
-    set({ riskPersonalityIds: ids });
+    set((state) => ({
+      riskPersonalityIds: ids,
+      compareList: state.compareList.filter(p => !ids.includes(p.id)),
+      candidateList: state.candidateList.filter(item => !ids.includes(item.personality_id)),
+    }));
     saveToStorage(get());
   },
   
@@ -200,14 +223,36 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
   
   addAssignment: (assignment) => {
-    set((state) => ({
-      assignments: [...state.assignments, {
-        ...assignment,
-        id: `assign-${Date.now()}`,
-        assigned_at: new Date().toISOString(),
-      }],
-    }));
+    const state = get();
+    const existingAssignment = state.assignments.find(
+      a => a.application_id === assignment.application_id && 
+           a.employee_id === assignment.employee_id && 
+           a.personality_id === assignment.personality_id
+    );
+    
+    if (existingAssignment) {
+      set((state) => ({
+        assignments: state.assignments.map(a => 
+          a.id === existingAssignment.id 
+            ? { ...a, quantity: a.quantity + assignment.quantity }
+            : a
+        ),
+      }));
+    } else {
+      set((state) => ({
+        assignments: [...state.assignments, {
+          ...assignment,
+          id: `assign-${Date.now()}`,
+          assigned_at: new Date().toISOString(),
+        }],
+      }));
+    }
     saveToStorage(get());
+  },
+  
+  getValidCandidateList: () => {
+    const state = get();
+    return state.candidateList.filter(item => !state.riskPersonalityIds.includes(item.personality_id));
   },
 }));
 
@@ -219,6 +264,7 @@ const saveToStorage = (state: AppStore) => {
       quota: state.quota,
       employees: state.employees,
       assignments: state.assignments,
+      candidateList: state.candidateList,
     };
     localStorage.setItem(localStorageKey, JSON.stringify(data));
   } catch (e) {
@@ -228,22 +274,60 @@ const saveToStorage = (state: AppStore) => {
 
 export const getAssignmentsByEmployee = (employeeId: string): PersonalityAssignment[] => {
   const state = useAppStore.getState();
-  return state.assignments
-    .filter(a => a.employee_id === employeeId)
-    .map(a => ({
-      ...a,
-      employee: state.employees.find(e => e.id === a.employee_id),
-      personality: state.personalities.find(p => p.id === a.personality_id),
-    }));
+  const rawAssignments = state.assignments
+    .filter(a => a.employee_id === employeeId);
+  
+  const merged: Record<string, PersonalityAssignment> = {};
+  rawAssignments.forEach(a => {
+    const key = `${a.personality_id}`;
+    if (merged[key]) {
+      merged[key].quantity += a.quantity;
+    } else {
+      merged[key] = { ...a };
+    }
+  });
+  
+  return Object.values(merged).map(a => ({
+    ...a,
+    employee: state.employees.find(e => e.id === a.employee_id),
+    personality: state.personalities.find(p => p.id === a.personality_id),
+  }));
 };
 
 export const getAssignmentsByApplication = (applicationId: string): PersonalityAssignment[] => {
   const state = useAppStore.getState();
-  return state.assignments
-    .filter(a => a.application_id === applicationId)
-    .map(a => ({
-      ...a,
-      employee: state.employees.find(e => e.id === a.employee_id),
-      personality: state.personalities.find(p => p.id === a.personality_id),
-    }));
+  const rawAssignments = state.assignments
+    .filter(a => a.application_id === applicationId);
+  
+  const merged: Record<string, PersonalityAssignment> = {};
+  rawAssignments.forEach(a => {
+    const key = `${a.employee_id}-${a.personality_id}`;
+    if (merged[key]) {
+      merged[key].quantity += a.quantity;
+    } else {
+      merged[key] = { ...a };
+    }
+  });
+  
+  return Object.values(merged).map(a => ({
+    ...a,
+    employee: state.employees.find(e => e.id === a.employee_id),
+    personality: state.personalities.find(p => p.id === a.personality_id),
+  }));
+};
+
+export const getAllEmployeesWithAssignments = (): Array<{
+  employee: Employee | undefined;
+  assignments: PersonalityAssignment[];
+  totalQuantity: number;
+}> => {
+  const state = useAppStore.getState();
+  return state.employees.map(employee => {
+    const assignments = getAssignmentsByEmployee(employee.id);
+    return {
+      employee,
+      assignments,
+      totalQuantity: assignments.reduce((sum, a) => sum + a.quantity, 0),
+    };
+  }).filter(item => item.totalQuantity > 0);
 };
