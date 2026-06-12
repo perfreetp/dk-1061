@@ -63,6 +63,8 @@ interface AppStore {
   
   setEmployees: (employees: Employee[]) => void;
   addAssignment: (assignment: Omit<PersonalityAssignment, 'id' | 'assigned_at'>) => void;
+  updateAssignmentQuantity: (assignmentId: string, quantity: number) => void;
+  transferAssignment: (assignmentId: string, targetEmployeeId: string, quantity: number) => void;
   
   getValidCandidateList: () => CandidateItem[];
 }
@@ -177,9 +179,19 @@ export const useAppStore = create<AppStore>((set, get) => ({
   
   updateApplicationStatus: (applicationId, status) => {
     set((state) => ({
-      applications: state.applications.map(app => 
-        app.id === applicationId ? { ...app, status, approved_at: status === 'approved' ? new Date().toISOString() : app.approved_at } : app
-      ),
+      applications: state.applications.map(app => {
+        if (app.id === applicationId && status === 'approved') {
+          const expiresAt = new Date();
+          expiresAt.setFullYear(expiresAt.getFullYear() + 1);
+          return { 
+            ...app, 
+            status, 
+            approved_at: new Date().toISOString(),
+            expires_at: expiresAt.toISOString()
+          };
+        }
+        return app.id === applicationId ? { ...app, status } : app;
+      }),
     }));
     saveToStorage(get());
   },
@@ -250,6 +262,77 @@ export const useAppStore = create<AppStore>((set, get) => ({
     saveToStorage(get());
   },
   
+  updateAssignmentQuantity: (assignmentId, quantity) => {
+    if (quantity <= 0) {
+      set((state) => ({
+        assignments: state.assignments.filter(a => a.id !== assignmentId),
+      }));
+    } else {
+      set((state) => ({
+        assignments: state.assignments.map(a => 
+          a.id === assignmentId ? { ...a, quantity } : a
+        ),
+      }));
+    }
+    saveToStorage(get());
+  },
+  
+  transferAssignment: (assignmentId, targetEmployeeId, quantity) => {
+    const state = get();
+    const assignment = state.assignments.find(a => a.id === assignmentId);
+    
+    if (!assignment) return;
+    
+    if (assignment.quantity <= quantity) {
+      set((state) => ({
+        assignments: state.assignments
+          .filter(a => a.id !== assignmentId)
+          .concat({
+            ...assignment,
+            id: `assign-${Date.now()}`,
+            employee_id: targetEmployeeId,
+            assigned_at: new Date().toISOString(),
+          }),
+      }));
+    } else {
+      const existingTarget = state.assignments.find(
+        a => a.application_id === assignment.application_id &&
+             a.employee_id === targetEmployeeId &&
+             a.personality_id === assignment.personality_id
+      );
+      
+      if (existingTarget) {
+        set((state) => ({
+          assignments: state.assignments.map(a => {
+            if (a.id === assignmentId) {
+              return { ...a, quantity: a.quantity - quantity };
+            }
+            if (a.id === existingTarget.id) {
+              return { ...a, quantity: a.quantity + quantity };
+            }
+            return a;
+          }),
+        }));
+      } else {
+        set((state) => ({
+          assignments: state.assignments.map(a => {
+            if (a.id === assignmentId) {
+              return { ...a, quantity: a.quantity - quantity };
+            }
+            return a;
+          }).concat({
+            ...assignment,
+            id: `assign-${Date.now()}`,
+            employee_id: targetEmployeeId,
+            quantity,
+            assigned_at: new Date().toISOString(),
+          }),
+        }));
+      }
+    }
+    saveToStorage(get());
+  },
+  
   getValidCandidateList: () => {
     const state = get();
     return state.candidateList.filter(item => !state.riskPersonalityIds.includes(item.personality_id));
@@ -279,7 +362,7 @@ export const getAssignmentsByEmployee = (employeeId: string): PersonalityAssignm
   
   const merged: Record<string, PersonalityAssignment> = {};
   rawAssignments.forEach(a => {
-    const key = `${a.personality_id}`;
+    const key = `${a.personality_id}-${a.application_id}`;
     if (merged[key]) {
       merged[key].quantity += a.quantity;
     } else {
@@ -291,6 +374,7 @@ export const getAssignmentsByEmployee = (employeeId: string): PersonalityAssignm
     ...a,
     employee: state.employees.find(e => e.id === a.employee_id),
     personality: state.personalities.find(p => p.id === a.personality_id),
+    application: state.applications.find(app => app.id === a.application_id),
   }));
 };
 
@@ -313,6 +397,7 @@ export const getAssignmentsByApplication = (applicationId: string): PersonalityA
     ...a,
     employee: state.employees.find(e => e.id === a.employee_id),
     personality: state.personalities.find(p => p.id === a.personality_id),
+    application: state.applications.find(app => app.id === a.application_id),
   }));
 };
 
@@ -330,4 +415,56 @@ export const getAllEmployeesWithAssignments = (): Array<{
       totalQuantity: assignments.reduce((sum, a) => sum + a.quantity, 0),
     };
   }).filter(item => item.totalQuantity > 0);
+};
+
+export const getAssignmentProgress = (): Array<{
+  personality: Personality | undefined;
+  application: PurchaseApplication;
+  totalPurchased: number;
+  assignedCount: number;
+  remainingCount: number;
+  employeeCount: number;
+}> => {
+  const state = useAppStore.getState();
+  const approvedApplications = state.applications.filter(app => app.status === 'approved');
+  
+  const progressMap = new Map<string, {
+    personality: Personality | undefined;
+    application: PurchaseApplication;
+    totalPurchased: number;
+    assignedCount: number;
+    employeeCount: number;
+  }>();
+  
+  approvedApplications.forEach(app => {
+    const key = `${app.personality_id}-${app.id}`;
+    const assignments = getAssignmentsByApplication(app.id);
+    const assignedCount = assignments.reduce((sum, a) => sum + a.quantity, 0);
+    const employeeCount = new Set(assignments.map(a => a.employee_id)).size;
+    
+    progressMap.set(key, {
+      personality: state.personalities.find(p => p.id === app.personality_id),
+      application: app,
+      totalPurchased: app.quantity,
+      assignedCount,
+      employeeCount,
+    });
+  });
+  
+  return Array.from(progressMap.values()).map(item => ({
+    ...item,
+    remainingCount: item.totalPurchased - item.assignedCount,
+  }));
+};
+
+export const getAffectedAssignmentsByRiskPersonality = (): PersonalityAssignment[] => {
+  const state = useAppStore.getState();
+  return state.assignments
+    .filter(a => state.riskPersonalityIds.includes(a.personality_id))
+    .map(a => ({
+      ...a,
+      employee: state.employees.find(e => e.id === a.employee_id),
+      personality: state.personalities.find(p => p.id === a.personality_id),
+      application: state.applications.find(app => app.id === a.application_id),
+    }));
 };

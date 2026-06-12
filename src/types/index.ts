@@ -31,6 +31,7 @@ export interface PurchaseApplication {
   status: 'pending' | 'approved' | 'rejected';
   submitted_at: string;
   approved_at?: string;
+  expires_at?: string;
   personality?: Personality;
 }
 

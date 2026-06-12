@@ -16,14 +16,19 @@ import {
   ChevronDown,
   ChevronUp,
   User,
-  AlertTriangle,
   Eye,
   Ban,
-  List
+  List,
+  ArrowRight,
+  TrendingUp,
+  AlertTriangle,
+  Link,
+  RefreshCw,
+  Target
 } from 'lucide-react';
-import { useAppStore, getAssignmentsByApplication, getAssignmentsByEmployee, getAllEmployeesWithAssignments } from '../store';
+import { useAppStore, getAssignmentsByApplication, getAssignmentsByEmployee, getAllEmployeesWithAssignments, getAssignmentProgress, getAffectedAssignmentsByRiskPersonality } from '../store';
 import { mockPersonalities, mockApplications, mockEmployees } from '../data/mockData';
-import type { PurchaseApplication, Employee } from '../types';
+import type { PurchaseApplication, Employee, PersonalityAssignment } from '../types';
 
 const statusConfig = {
   pending: { label: '待审批', color: 'bg-yellow-100 text-yellow-700', icon: Clock },
@@ -44,6 +49,8 @@ export function PurchasePage() {
     employees,
     setEmployees,
     addAssignment,
+    updateAssignmentQuantity,
+    transferAssignment,
     quota,
     riskPersonalityIds,
   } = useAppStore();
@@ -51,10 +58,10 @@ export function PurchasePage() {
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [purpose, setPurpose] = useState('');
   const [showForm, setShowForm] = useState(false);
-  const [activeTab, setActiveTab] = useState<'candidate' | 'history' | 'employees'>('candidate');
+  const [activeTab, setActiveTab] = useState<'candidate' | 'history' | 'employees' | 'progress'>('candidate');
   const [submitting, setSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
-  const [expandedApp, setExpandedApp] = useState<string | null>(null);
+  const [expandedApp, setExpandedAppState] = useState<string | null>(null);
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [selectedApplication, setSelectedApplication] = useState<PurchaseApplication | null>(null);
   const [selectedEmployee, setSelectedEmployee] = useState<string>('');
@@ -64,6 +71,9 @@ export function PurchasePage() {
     employee: Employee | undefined;
     assignments: any[];
   } | null>(null);
+  const [transferAssignmentId, setTransferAssignmentId] = useState<string | null>(null);
+  const [transferTargetEmployee, setTransferTargetEmployee] = useState<string>('');
+  const [transferQuantity, setTransferQuantity] = useState(1);
 
   useEffect(() => {
     if (personalities.length === 0) {
@@ -163,6 +173,22 @@ export function PurchasePage() {
     setShowEmployeeDetail(employeeId);
   };
 
+  const openTransferModal = (assignmentId: string, currentQuantity: number) => {
+    setTransferAssignmentId(assignmentId);
+    setTransferTargetEmployee('');
+    setTransferQuantity(Math.min(currentQuantity, 1));
+  };
+
+  const handleTransfer = () => {
+    if (!transferAssignmentId || !transferTargetEmployee || transferQuantity <= 0) return;
+    
+    transferAssignment(transferAssignmentId, transferTargetEmployee, transferQuantity);
+    
+    setTransferAssignmentId(null);
+    setTransferTargetEmployee('');
+    setTransferQuantity(1);
+  };
+
   const getTotalQuantity = () => {
     return validCandidateList.reduce((sum, item) => sum + (quantities[item.personality_id] || 1), 0);
   };
@@ -173,6 +199,11 @@ export function PurchasePage() {
   };
 
   const employeesWithAssignments = getAllEmployeesWithAssignments();
+  const assignmentProgress = getAssignmentProgress();
+  const affectedAssignments = getAffectedAssignmentsByRiskPersonality();
+  
+  const completedApplications = assignmentProgress.filter(p => p.remainingCount === 0);
+  const inProgressApplications = assignmentProgress.filter(p => p.remainingCount > 0);
 
   return (
     <div className="min-h-screen bg-gray-50 pt-20">
@@ -192,10 +223,10 @@ export function PurchasePage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2">
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-              <div className="flex border-b border-gray-100">
+              <div className="flex border-b border-gray-100 overflow-x-auto">
                 <button
                   onClick={() => setActiveTab('candidate')}
-                  className={`flex-1 px-6 py-4 text-sm font-medium transition-colors ${
+                  className={`px-6 py-4 text-sm font-medium transition-colors whitespace-nowrap ${
                     activeTab === 'candidate'
                       ? 'text-primary-600 border-b-2 border-primary-600 bg-primary-50/50'
                       : 'text-gray-500 hover:text-gray-700'
@@ -210,7 +241,7 @@ export function PurchasePage() {
                 </button>
                 <button
                   onClick={() => setActiveTab('history')}
-                  className={`flex-1 px-6 py-4 text-sm font-medium transition-colors ${
+                  className={`px-6 py-4 text-sm font-medium transition-colors whitespace-nowrap ${
                     activeTab === 'history'
                       ? 'text-primary-600 border-b-2 border-primary-600 bg-primary-50/50'
                       : 'text-gray-500 hover:text-gray-700'
@@ -224,8 +255,23 @@ export function PurchasePage() {
                   )}
                 </button>
                 <button
+                  onClick={() => setActiveTab('progress')}
+                  className={`px-6 py-4 text-sm font-medium transition-colors whitespace-nowrap ${
+                    activeTab === 'progress'
+                      ? 'text-primary-600 border-b-2 border-primary-600 bg-primary-50/50'
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  分配进度
+                  {inProgressApplications.length > 0 && (
+                    <span className="ml-2 px-2 py-0.5 bg-blue-100 text-blue-600 text-xs rounded-full">
+                      {inProgressApplications.length}
+                    </span>
+                  )}
+                </button>
+                <button
                   onClick={() => setActiveTab('employees')}
-                  className={`flex-1 px-6 py-4 text-sm font-medium transition-colors ${
+                  className={`px-6 py-4 text-sm font-medium transition-colors whitespace-nowrap ${
                     activeTab === 'employees'
                       ? 'text-primary-600 border-b-2 border-primary-600 bg-primary-50/50'
                       : 'text-gray-500 hover:text-gray-700'
@@ -394,7 +440,7 @@ export function PurchasePage() {
                           >
                             <div 
                               className="p-4 hover:bg-gray-100 transition-colors cursor-pointer"
-                              onClick={() => setExpandedApp(isExpanded ? null : app.id)}
+                              onClick={() => setExpandedAppState(isExpanded ? null : app.id)}
                             >
                               <div className="flex items-start justify-between mb-3">
                                 <div className="flex items-center gap-3">
@@ -435,6 +481,12 @@ export function PurchasePage() {
                                     <span>审批于 {new Date(app.approved_at).toLocaleDateString()}</span>
                                   </div>
                                 )}
+                                {app.expires_at && (
+                                  <div className="flex items-center gap-1">
+                                    <Target className="w-3 h-3" />
+                                    <span>到期于 {new Date(app.expires_at).toLocaleDateString()}</span>
+                                  </div>
+                                )}
                               </div>
                             </div>
 
@@ -460,27 +512,51 @@ export function PurchasePage() {
                                       分配记录
                                     </h5>
                                     <div className="space-y-2">
-                                      {assignments.map((assign) => (
-                                        <div
-                                          key={assign.id}
-                                          className="flex items-center justify-between p-2 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            openEmployeeDetail(assign.employee_id);
-                                          }}
-                                        >
-                                          <div className="flex items-center gap-2">
-                                            <User className="w-4 h-4 text-gray-500" />
-                                            <span className="text-sm text-gray-700">
-                                              {assign.employee?.name} ({assign.employee?.department})
-                                            </span>
-                                            <Eye className="w-3 h-3 text-gray-400 ml-2" />
+                                      {assignments.map((assign) => {
+                                        const isRisk = riskPersonalityIds.includes(assign.personality_id);
+                                        return (
+                                          <div
+                                            key={assign.id}
+                                            className={`flex items-center justify-between p-2 rounded-lg hover:bg-gray-100 transition-colors ${
+                                              isRisk ? 'bg-red-50' : 'bg-gray-50'
+                                            }`}
+                                          >
+                                            <div className="flex items-center gap-2 flex-1">
+                                              <User className="w-4 h-4 text-gray-500" />
+                                              <div className="flex-1">
+                                                <div className="flex items-center gap-2">
+                                                  <span className="text-sm text-gray-700">
+                                                    {assign.employee?.name} ({assign.employee?.department})
+                                                  </span>
+                                                  {isRisk && (
+                                                    <span className="px-2 py-0.5 bg-red-100 text-red-600 text-xs rounded-full">已停用</span>
+                                                  )}
+                                                </div>
+                                                <div className="text-xs text-gray-500">
+                                                  分配于 {new Date(assign.assigned_at).toLocaleDateString()}
+                                                </div>
+                                              </div>
+                                            </div>
+                                            <div className="flex items-center gap-3">
+                                              <span className="text-sm font-medium text-gray-900">
+                                                ×{assign.quantity}
+                                              </span>
+                                              {!isRisk && assign.quantity > 1 && (
+                                                <button
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    openTransferModal(assign.id, assign.quantity);
+                                                  }}
+                                                  className="p-1.5 rounded-lg hover:bg-blue-100 text-blue-600 transition-colors"
+                                                  title="转移分配"
+                                                >
+                                                  <RefreshCw className="w-4 h-4" />
+                                                </button>
+                                              )}
+                                            </div>
                                           </div>
-                                          <span className="text-sm font-medium text-gray-900">
-                                            ×{assign.quantity}
-                                          </span>
-                                        </div>
-                                      ))}
+                                        );
+                                      })}
                                     </div>
                                   </div>
                                 )}
@@ -495,6 +571,113 @@ export function PurchasePage() {
                           </div>
                         );
                       })}
+                    </div>
+                  )
+                ) : activeTab === 'progress' ? (
+                  assignmentProgress.length === 0 ? (
+                    <div className="py-16 text-center">
+                      <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <TrendingUp className="w-10 h-10 text-gray-400" />
+                      </div>
+                      <h3 className="text-lg font-medium text-gray-900 mb-2">暂无分配进度</h3>
+                      <p className="text-gray-500">审批通过的采购申请将显示在这里</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-6">
+                      {inProgressApplications.length > 0 && (
+                        <div>
+                          <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                            <Clock className="w-5 h-5 text-blue-500" />
+                            分配中 ({inProgressApplications.length})
+                          </h3>
+                          <div className="space-y-4">
+                            {inProgressApplications.map((progress) => (
+                              <div
+                                key={progress.application.id}
+                                className="bg-gray-50 rounded-xl p-4"
+                                onClick={() => {
+                                  setActiveTab('history');
+                                  setExpandedAppState(progress.application.id);
+                                }}
+                              >
+                                <div className="flex items-center gap-4 mb-4">
+                                  <img
+                                    src={progress.personality?.avatar}
+                                    alt={progress.personality?.name}
+                                    className="w-12 h-12 rounded-lg"
+                                  />
+                                  <div className="flex-1">
+                                    <h4 className="font-semibold text-gray-900">{progress.personality?.name}</h4>
+                                    <p className="text-sm text-gray-500">{progress.application.purpose}</p>
+                                  </div>
+                                  <Link className="w-5 h-5 text-gray-400" />
+                                </div>
+                                <div className="grid grid-cols-4 gap-4 mb-3">
+                                  <div className="text-center">
+                                    <div className="text-2xl font-bold text-gray-900">{progress.totalPurchased}</div>
+                                    <div className="text-xs text-gray-500">已采购</div>
+                                  </div>
+                                  <div className="text-center">
+                                    <div className="text-2xl font-bold text-green-600">{progress.assignedCount}</div>
+                                    <div className="text-xs text-gray-500">已分配</div>
+                                  </div>
+                                  <div className="text-center">
+                                    <div className="text-2xl font-bold text-yellow-600">{progress.remainingCount}</div>
+                                    <div className="text-xs text-gray-500">剩余</div>
+                                  </div>
+                                  <div className="text-center">
+                                    <div className="text-2xl font-bold text-blue-600">{progress.employeeCount}</div>
+                                    <div className="text-xs text-gray-500">涉及员工</div>
+                                  </div>
+                                </div>
+                                <div className="w-full bg-gray-200 rounded-full h-2">
+                                  <div
+                                    className="bg-gradient-to-r from-green-500 to-green-600 h-2 rounded-full transition-all"
+                                    style={{ width: `${(progress.assignedCount / progress.totalPurchased) * 100}%` }}
+                                  />
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {completedApplications.length > 0 && (
+                        <div>
+                          <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                            <CheckCircle className="w-5 h-5 text-green-500" />
+                            已分配完成 ({completedApplications.length})
+                          </h3>
+                          <div className="space-y-4">
+                            {completedApplications.map((progress) => (
+                              <div
+                                key={progress.application.id}
+                                className="bg-gray-50 rounded-xl p-4 opacity-75"
+                                onClick={() => {
+                                  setActiveTab('history');
+                                  setExpandedAppState(progress.application.id);
+                                }}
+                              >
+                                <div className="flex items-center gap-4">
+                                  <img
+                                    src={progress.personality?.avatar}
+                                    alt={progress.personality?.name}
+                                    className="w-12 h-12 rounded-lg"
+                                  />
+                                  <div className="flex-1">
+                                    <h4 className="font-semibold text-gray-900">{progress.personality?.name}</h4>
+                                    <p className="text-sm text-gray-500">{progress.employeeCount} 名员工已分配</p>
+                                  </div>
+                                  <div className="flex items-center gap-2 px-3 py-1.5 bg-green-100 text-green-700 text-sm font-medium rounded-full">
+                                    <CheckCircle className="w-4 h-4" />
+                                    已完成
+                                  </div>
+                                  <Link className="w-5 h-5 text-gray-400" />
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )
                 ) : (
@@ -578,6 +761,34 @@ export function PurchasePage() {
                 </div>
               </div>
             </div>
+
+            {affectedAssignments.length > 0 && (
+              <div className="bg-red-50 border border-red-200 rounded-2xl p-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <AlertTriangle className="w-5 h-5 text-red-600" />
+                  <h3 className="font-semibold text-red-700">受影响的分配</h3>
+                </div>
+                <p className="text-sm text-red-600 mb-4">以下分配涉及已停用的风险人格，无法继续转移</p>
+                <div className="space-y-2">
+                  {affectedAssignments.slice(0, 3).map((assign) => (
+                    <div key={assign.id} className="flex items-center justify-between p-2 bg-white rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <User className="w-4 h-4 text-gray-500" />
+                        <span className="text-sm text-gray-700">{assign.employee?.name}</span>
+                      </div>
+                      <span className="text-xs px-2 py-1 bg-red-100 text-red-600 rounded-full">
+                        {assign.personality?.name}
+                      </span>
+                    </div>
+                  ))}
+                  {affectedAssignments.length > 3 && (
+                    <div className="text-xs text-red-500 text-center">
+                      还有 {affectedAssignments.length - 3} 条受影响记录...
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             <div className="bg-gradient-to-br from-primary-500 to-primary-600 rounded-2xl p-6 text-white">
               <div className="flex items-center gap-3 mb-4">
@@ -771,8 +982,8 @@ export function PurchasePage() {
 
         {showEmployeeDetail && employeeDetailData && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
-              <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[80vh] overflow-hidden flex flex-col">
+              <div className="p-6 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
                 <h3 className="text-lg font-semibold text-gray-900">员工分配详情</h3>
                 <button
                   onClick={() => {
@@ -785,7 +996,7 @@ export function PurchasePage() {
                 </button>
               </div>
               
-              <div className="p-6">
+              <div className="flex-1 overflow-y-auto p-6">
                 <div className="flex items-center gap-3 mb-6 p-4 bg-primary-50 rounded-xl">
                   <div className="w-14 h-14 bg-primary-100 rounded-full flex items-center justify-center">
                     <User className="w-7 h-7 text-primary-600" />
@@ -800,23 +1011,60 @@ export function PurchasePage() {
                   <h5 className="text-sm font-medium text-gray-900 mb-3">已分配人格</h5>
                   {employeeDetailData.assignments.length > 0 ? (
                     <div className="space-y-3">
-                      {employeeDetailData.assignments.map((assign) => (
-                        <div
-                          key={assign.id}
-                          className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg"
-                        >
-                          <img
-                            src={assign.personality?.avatar}
-                            alt={assign.personality?.name}
-                            className="w-10 h-10 rounded-lg"
-                          />
-                          <div className="flex-1">
-                            <h6 className="font-medium text-gray-900">{assign.personality?.name}</h6>
-                            <p className="text-xs text-gray-500">{assign.personality?.task_type}</p>
+                      {employeeDetailData.assignments.map((assign) => {
+                        const isRisk = riskPersonalityIds.includes(assign.personality_id);
+                        return (
+                          <div
+                            key={assign.id}
+                            className={`p-3 rounded-lg ${isRisk ? 'bg-red-50' : 'bg-gray-50'}`}
+                          >
+                            <div className="flex items-center gap-3 mb-2">
+                              <img
+                                src={assign.personality?.avatar}
+                                alt={assign.personality?.name}
+                                className={`w-10 h-10 rounded-lg ${isRisk ? 'grayscale' : ''}`}
+                              />
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                  <h6 className="font-medium text-gray-900">{assign.personality?.name}</h6>
+                                  {isRisk && (
+                                    <span className="px-2 py-0.5 bg-red-100 text-red-600 text-xs rounded-full">已停用</span>
+                                  )}
+                                </div>
+                                <p className="text-xs text-gray-500">{assign.personality?.task_type}</p>
+                              </div>
+                              <span className="text-lg font-bold text-primary-600">×{assign.quantity}</span>
+                            </div>
+                            <div className="flex items-center gap-4 text-xs text-gray-500">
+                              <div className="flex items-center gap-1">
+                                <Calendar className="w-3 h-3" />
+                                <span>分配于 {new Date(assign.assigned_at).toLocaleDateString()}</span>
+                              </div>
+                              {assign.application?.expires_at && (
+                                <div className="flex items-center gap-1">
+                                  <Target className="w-3 h-3" />
+                                  <span>到期于 {new Date(assign.application.expires_at).toLocaleDateString()}</span>
+                                </div>
+                              )}
+                            </div>
+                            <div className="mt-2 text-xs">
+                              <span className="text-gray-500">来源申请:</span>
+                              <span className="text-gray-700 ml-1">
+                                {assign.application?.purpose || '未知'}
+                              </span>
+                            </div>
+                            {!isRisk && assign.quantity > 1 && (
+                              <button
+                                onClick={() => openTransferModal(assign.id, assign.quantity)}
+                                className="mt-2 px-3 py-1.5 bg-blue-100 text-blue-600 text-xs rounded-lg hover:bg-blue-200 transition-colors"
+                              >
+                                <RefreshCw className="w-3 h-3 inline mr-1" />
+                                转移分配
+                              </button>
+                            )}
                           </div>
-                          <span className="text-lg font-bold text-primary-600">×{assign.quantity}</span>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   ) : (
                     <div className="text-center py-8 text-gray-500">
@@ -832,6 +1080,88 @@ export function PurchasePage() {
                       {employeeDetailData.assignments.reduce((sum, a) => sum + a.quantity, 0)} 个人格
                     </span>
                   </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {transferAssignmentId && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+              <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-gray-900">转移分配</h3>
+                <button
+                  onClick={() => {
+                    setTransferAssignmentId(null);
+                    setTransferTargetEmployee('');
+                    setTransferQuantity(1);
+                  }}
+                  className="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center transition-colors"
+                >
+                  <X className="w-5 h-5 text-gray-500" />
+                </button>
+              </div>
+              
+              <div className="p-6">
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">选择目标员工</label>
+                  <select
+                    value={transferTargetEmployee}
+                    onChange={(e) => setTransferTargetEmployee(e.target.value)}
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 transition-all"
+                  >
+                    <option value="">请选择员工</option>
+                    {employees.map((emp: Employee) => (
+                      <option key={emp.id} value={emp.id}>
+                        {emp.name} - {emp.department} ({emp.email})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">转移数量</label>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => setTransferQuantity(Math.max(1, transferQuantity - 1))}
+                      className="w-10 h-10 rounded-lg bg-gray-200 hover:bg-gray-300 flex items-center justify-center transition-colors"
+                    >
+                      <Minus className="w-5 h-5" />
+                    </button>
+                    <span className="text-xl font-bold text-gray-900 w-12 text-center">{transferQuantity}</span>
+                    <button
+                      onClick={() => setTransferQuantity(transferQuantity + 1)}
+                      className="w-10 h-10 rounded-lg bg-gray-200 hover:bg-gray-300 flex items-center justify-center transition-colors"
+                    >
+                      <Plus className="w-5 h-5" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => {
+                      setTransferAssignmentId(null);
+                      setTransferTargetEmployee('');
+                      setTransferQuantity(1);
+                    }}
+                    className="flex-1 py-3 border border-gray-200 text-gray-700 font-medium rounded-xl hover:bg-gray-50 transition-colors"
+                  >
+                    取消
+                  </button>
+                  <button
+                    onClick={handleTransfer}
+                    disabled={!transferTargetEmployee || transferQuantity <= 0}
+                    className={`flex-1 py-3 font-medium rounded-xl transition-all flex items-center justify-center justify-center gap-2 ${
+                      !transferTargetEmployee || transferQuantity <= 0
+                        ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                        : 'bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700'
+                    }`}
+                  >
+                    <ArrowRight className="w-4 h-4" />
+                    确认转移
+                  </button>
                 </div>
               </div>
             </div>
