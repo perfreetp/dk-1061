@@ -1,4 +1,4 @@
-import type { Personality, PurchaseApplication, UsageLog, Feedback } from '../types';
+import type { Personality, PurchaseApplication, UsageLog, Feedback, Employee } from '../types';
 
 export const mockPersonalities: Personality[] = [
   {
@@ -213,4 +213,12 @@ export const mockRenewalReminders = [
   { id: 'r1', personality_name: '金融客服专家', expires_at: '2024-06-15', days_left: 30, quantity: 10 },
   { id: 'r2', personality_name: '医疗顾问小美', expires_at: '2024-06-20', days_left: 35, quantity: 5 },
   { id: 'r3', personality_name: '电商导购助手', expires_at: '2024-07-01', days_left: 46, quantity: 3 },
+];
+
+export const mockEmployees: Employee[] = [
+  { id: 'emp1', name: '张三', email: 'zhangsan@example.com', department: '客服部' },
+  { id: 'emp2', name: '李四', email: 'lisi@example.com', department: '销售部' },
+  { id: 'emp3', name: '王五', email: 'wangwu@example.com', department: '培训部' },
+  { id: 'emp4', name: '赵六', email: 'zhaoliu@example.com', department: '技术部' },
+  { id: 'emp5', name: '钱七', email: 'qianqi@example.com', department: '客服部' },
 ];

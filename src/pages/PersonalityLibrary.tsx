@@ -10,7 +10,9 @@ import {
   Plus,
   GitCompare,
   ShoppingCart,
-  Search
+  Search,
+  AlertTriangle,
+  Ban
 } from 'lucide-react';
 import { useAppStore } from '../store';
 import { mockPersonalities } from '../data/mockData';
@@ -47,7 +49,8 @@ export function PersonalityLibrary() {
     addToCandidateList, 
     removeFromCandidateList,
     addToCompareList,
-    removeFromCompareList
+    removeFromCompareList,
+    riskPersonalityIds,
   } = useAppStore();
   
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -62,6 +65,9 @@ export function PersonalityLibrary() {
 
   const filteredPersonalities = useMemo(() => {
     return personalities.filter((p) => {
+      if (riskPersonalityIds.includes(p.id)) {
+        return true;
+      }
       if (searchQuery && !p.name.toLowerCase().includes(searchQuery.toLowerCase())) {
         return false;
       }
@@ -79,7 +85,7 @@ export function PersonalityLibrary() {
       }
       return true;
     });
-  }, [personalities, filters, searchQuery]);
+  }, [personalities, filters, searchQuery, riskPersonalityIds]);
 
   const toggleFilter = (type: keyof typeof filters, value: string | number) => {
     if (type === 'complianceLevel') {
@@ -336,53 +342,82 @@ export function PersonalityLibrary() {
               const inCandidate = isInCandidateList(personality.id);
               const inCompare = isInCompareList(personality.id);
 
+              const isRisk = riskPersonalityIds.includes(personality.id);
+
               return (
                 <div
                   key={personality.id}
-                  className={`relative bg-gradient-to-br from-gray-50 to-white rounded-2xl p-5 border transition-all duration-200 hover:shadow-lg ${
-                    isSelected
-                      ? 'border-primary-300 ring-2 ring-primary-100'
-                      : 'border-gray-100 hover:border-primary-200'
+                  className={`relative bg-gradient-to-br from-gray-50 to-white rounded-2xl p-5 border transition-all duration-200 ${
+                    isRisk
+                      ? 'border-red-200 bg-red-50/50 opacity-75'
+                      : isSelected
+                      ? 'border-primary-300 ring-2 ring-primary-100 hover:shadow-lg'
+                      : 'border-gray-100 hover:border-primary-200 hover:shadow-lg'
                   }`}
                 >
-                  <div className="absolute top-4 right-4 flex gap-2">
-                    <button
-                      onClick={() => toggleSelect(personality.id)}
-                      className={`w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all duration-200 ${
-                        isSelected
-                          ? 'bg-primary-500 border-primary-500 text-white'
-                          : 'border-gray-300 hover:border-primary-400'
-                      }`}
-                    >
-                      {isSelected && <Check className="w-4 h-4" />}
-                    </button>
-                  </div>
+                  {isRisk && (
+                    <div className="absolute top-3 right-3 flex items-center gap-1 px-2 py-1 bg-red-100 text-red-700 rounded-full text-xs font-medium">
+                      <AlertTriangle className="w-3 h-3" />
+                      已停用
+                    </div>
+                  )}
+                  {!isRisk && (
+                    <div className="absolute top-4 right-4 flex gap-2">
+                      <button
+                        onClick={() => toggleSelect(personality.id)}
+                        className={`w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all duration-200 ${
+                          isSelected
+                            ? 'bg-primary-500 border-primary-500 text-white'
+                            : 'border-gray-300 hover:border-primary-400'
+                        }`}
+                      >
+                        {isSelected && <Check className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  )}
 
                   <div className="flex items-start gap-4 mb-4">
-                    <img
-                      src={personality.avatar}
-                      alt={personality.name}
-                      className="w-14 h-14 rounded-xl bg-gray-200 object-cover"
-                    />
+                    <div className="relative">
+                      <img
+                        src={personality.avatar}
+                        alt={personality.name}
+                        className="w-14 h-14 rounded-xl bg-gray-200 object-cover"
+                      />
+                      {isRisk && (
+                        <div className="absolute inset-0 bg-gray-500/50 rounded-xl flex items-center justify-center">
+                          <Ban className="w-6 h-6 text-white" />
+                        </div>
+                      )}
+                    </div>
                     <div className="flex-1">
-                      <h3 className="font-semibold text-gray-900 mb-1">{personality.name}</h3>
+                      <h3 className={`font-semibold mb-1 ${isRisk ? 'text-gray-500 line-through' : 'text-gray-900'}`}>
+                        {personality.name}
+                      </h3>
                       <div className="flex items-center gap-2">
-                        <CategoryIcon className="w-4 h-4 text-primary-500" />
-                        <span className="text-xs text-gray-500">{categoryLabels[personality.category]}</span>
-                        <span className="text-xs text-gray-300">|</span>
-                        <span className="text-xs text-gray-500">{personality.industry}</span>
+                        <CategoryIcon className={`w-4 h-4 ${isRisk ? 'text-gray-400' : 'text-primary-500'}`} />
+                        <span className={`text-xs ${isRisk ? 'text-gray-400' : 'text-gray-500'}`}>
+                          {categoryLabels[personality.category]}
+                        </span>
+                        {!isRisk && (
+                          <>
+                            <span className="text-xs text-gray-300">|</span>
+                            <span className="text-xs text-gray-500">{personality.industry}</span>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>
 
-                  <p className="text-sm text-gray-600 mb-4 line-clamp-2">
+                  <p className={`text-sm mb-4 line-clamp-2 ${isRisk ? 'text-gray-400' : 'text-gray-600'}`}>
                     {personality.description}
                   </p>
 
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-1">
-                      <Star className="w-4 h-4 text-secondary-500 fill-secondary-500" />
-                      <span className="text-sm font-medium text-gray-700">{personality.rating}</span>
+                      <Star className={`w-4 h-4 ${isRisk ? 'text-gray-300' : 'text-secondary-500 fill-secondary-500'}`} />
+                      <span className={`text-sm font-medium ${isRisk ? 'text-gray-400' : 'text-gray-700'}`}>
+                        {personality.rating}
+                      </span>
                       <span className="text-xs text-gray-400">({personality.usage_count.toLocaleString()}次)</span>
                     </div>
                     <div className="flex items-center gap-0.5">
@@ -391,39 +426,60 @@ export function PersonalityLibrary() {
                   </div>
 
                   <div className="flex items-center gap-2 text-xs text-gray-500 mb-4">
-                    <span className="px-2 py-1 bg-gray-100 rounded-md">{personality.task_type}</span>
-                    <span className="px-2 py-1 bg-green-50 text-green-600 rounded-md">
+                    <span className={`px-2 py-1 rounded-md ${isRisk ? 'bg-gray-100 text-gray-400' : 'bg-gray-100'}`}>
+                      {personality.task_type}
+                    </span>
+                    <span className={`px-2 py-1 rounded-md ${isRisk ? 'bg-gray-50 text-gray-400' : 'bg-green-50 text-green-600'}`}>
                       {styleLabels[personality.response_style]}
                     </span>
                   </div>
 
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => handleAddToCandidate(personality)}
-                      className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
-                        inCandidate
-                          ? 'bg-primary-500 text-white hover:bg-primary-600'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      }`}
-                    >
-                      {inCandidate ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-                      {inCandidate ? '已加入候选' : '加入候选'}
-                    </button>
-                    <button
-                      onClick={() => handleAddToCompare(personality)}
-                      disabled={compareList.length >= 5 && !inCompare}
-                      className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
-                        inCompare
-                          ? 'bg-secondary-500 text-white hover:bg-secondary-600'
-                          : compareList.length >= 5
-                          ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                          : 'bg-blue-50 text-blue-600 hover:bg-blue-100'
-                      }`}
-                    >
-                      {inCompare ? <Check className="w-4 h-4" /> : <GitCompare className="w-4 h-4" />}
-                      {inCompare ? '已加入对比' : '加入对比'}
-                    </button>
-                  </div>
+                  {isRisk ? (
+                    <div className="flex gap-2">
+                      <button
+                        disabled
+                        className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium bg-gray-200 text-gray-400 cursor-not-allowed"
+                      >
+                        <Ban className="w-4 h-4" />
+                        已停用
+                      </button>
+                      <button
+                        disabled
+                        className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium bg-gray-200 text-gray-400 cursor-not-allowed"
+                      >
+                        <Ban className="w-4 h-4" />
+                        已停用
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleAddToCandidate(personality)}
+                        className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
+                          inCandidate
+                            ? 'bg-primary-500 text-white hover:bg-primary-600'
+                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        }`}
+                      >
+                        {inCandidate ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                        {inCandidate ? '已加入候选' : '加入候选'}
+                      </button>
+                      <button
+                        onClick={() => handleAddToCompare(personality)}
+                        disabled={compareList.length >= 5 && !inCompare}
+                        className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
+                          inCompare
+                            ? 'bg-secondary-500 text-white hover:bg-secondary-600'
+                            : compareList.length >= 5
+                            ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                            : 'bg-blue-50 text-blue-600 hover:bg-blue-100'
+                        }`}
+                      >
+                        {inCompare ? <Check className="w-4 h-4" /> : <GitCompare className="w-4 h-4" />}
+                        {inCompare ? '已加入对比' : '加入对比'}
+                      </button>
+                    </div>
+                  )}
                 </div>
               );
             })}

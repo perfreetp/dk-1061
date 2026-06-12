@@ -33,7 +33,8 @@ export function ComparePage() {
     setTrialResults,
     clearTrialResults,
     personalities,
-    setPersonalities
+    setPersonalities,
+    riskPersonalityIds,
   } = useAppStore();
 
   const [question, setQuestion] = useState('');
@@ -47,7 +48,7 @@ export function ComparePage() {
   }, [personalities.length, setPersonalities]);
 
   const availablePersonalities = personalities.filter(p => 
-    !compareList.some(c => c.id === p.id)
+    !compareList.some(c => c.id === p.id) && !riskPersonalityIds.includes(p.id)
   );
 
   const handleRunTrial = async () => {

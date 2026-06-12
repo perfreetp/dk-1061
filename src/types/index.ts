@@ -94,6 +94,24 @@ export interface User {
   role: 'user' | 'approver' | 'admin';
 }
 
+export interface Employee {
+  id: string;
+  name: string;
+  email: string;
+  department: string;
+}
+
+export interface PersonalityAssignment {
+  id: string;
+  application_id: string;
+  employee_id: string;
+  personality_id: string;
+  quantity: number;
+  assigned_at: string;
+  employee?: Employee;
+  personality?: Personality;
+}
+
 export const INDUSTRY_OPTIONS = [
   '金融',
   '医疗',

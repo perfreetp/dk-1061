@@ -26,14 +26,17 @@ export function MonitorPage() {
     usageData,
     setUsageData,
     feedbackData,
-    setFeedbackData
+    setFeedbackData,
+    riskPersonalityIds,
+    addRiskPersonality,
+    removeRiskPersonality,
+    quota,
+    setQuota,
   } = useAppStore();
 
   const [activeTab, setActiveTab] = useState<'dashboard' | 'risk' | 'reminders'>('dashboard');
-  const [riskPersonalities, setRiskPersonalities] = useState<Personality[]>([]);
-  const [quota, setQuota] = useState(50000);
   const [editingQuota, setEditingQuota] = useState(false);
-  const [tempQuota, setTempQuota] = useState(50000);
+  const [tempQuota, setTempQuota] = useState(quota);
 
   useEffect(() => {
     if (personalities.length === 0) {
@@ -47,11 +50,15 @@ export function MonitorPage() {
     }
   }, [personalities.length, usageData.length, feedbackData.length, setPersonalities, setUsageData, setFeedbackData]);
 
+  useEffect(() => {
+    setTempQuota(quota);
+  }, [quota]);
+
   const toggleRiskStatus = (personality: Personality) => {
-    if (riskPersonalities.find(p => p.id === personality.id)) {
-      setRiskPersonalities(riskPersonalities.filter(p => p.id !== personality.id));
+    if (riskPersonalityIds.includes(personality.id)) {
+      removeRiskPersonality(personality.id);
     } else {
-      setRiskPersonalities([...riskPersonalities, personality]);
+      addRiskPersonality(personality.id);
     }
   };
 
@@ -263,9 +270,9 @@ export function MonitorPage() {
               <div className="flex items-center justify-center gap-2">
                 <AlertTriangle className="w-4 h-4" />
                 风险管控
-                {riskPersonalities.length > 0 && (
+                {riskPersonalityIds.length > 0 && (
                   <span className="px-2 py-0.5 bg-red-100 text-red-600 text-xs rounded-full">
-                    {riskPersonalities.length}
+                    {riskPersonalityIds.length}
                   </span>
                 )}
               </div>
@@ -305,7 +312,7 @@ export function MonitorPage() {
                       const avgScore = feedbacks.length > 0 
                         ? (feedbacks.reduce((sum, f) => sum + f.satisfaction_score, 0) / feedbacks.length).toFixed(1)
                         : '-';
-                      const isRisk = riskPersonalities.find(p => p.id === personality.id);
+                      const isRisk = riskPersonalityIds.includes(personality.id);
                       
                       return (
                         <tr key={personality.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
@@ -373,7 +380,7 @@ export function MonitorPage() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {personalities.map((personality) => {
-                    const isRisk = riskPersonalities.find(p => p.id === personality.id);
+                    const isRisk = riskPersonalityIds.includes(personality.id);
                     const abnormalFeedbacks = feedbackData.filter(f => f.personality_id === personality.id && f.is_abnormal);
                     
                     return (
